@@ -5,11 +5,11 @@ import numpy as np
 # Force sidebar to be expanded by default and set page config
 st.set_page_config(page_title="Cost Analysis Application", initial_sidebar_state="expanded", layout="wide")
 
-# 1. Initialize session state (Modified part from previous answer)
+# 1. Initialize session state
 if 'taxes' not in st.session_state:
     st.session_state.taxes = {}
 if 'item_costs' not in st.session_state:
-    # Initialize the DataFrame with explicit dtypes to prevent mixed-type errors
+    # Initialize the DataFrame with explicit dtypes
     st.session_state.item_costs = pd.DataFrame(
         columns=['item_name', 'base_price', 'individual_overhead']
     ).astype({'item_name': str, 'base_price': np.float64, 'individual_overhead': np.float64})
@@ -18,7 +18,7 @@ if 'default_overhead' not in st.session_state:
 
 st.title("Cost Analysis Application")
 
-# 2. Sidebar for inputs
+# 2. Sidebar for inputs (remains the same)
 with st.sidebar:
     st.header("Configuration")
 
@@ -47,48 +47,30 @@ with st.sidebar:
 # 3. Main area for item data and results
 st.header("Item Price Input")
 
-# Item input using st.data_editor - This updates session_state automatically upon edit
+# Item input using st.data_editor
 st.session_state.item_costs = st.data_editor(st.session_state.item_costs, num_rows="dynamic", use_container_width=True, key='editor')
 
-# Calculate button
+# Calculate button and Vectorized Logic (FIXED SECTION)
 if st.button("Calculate Final Prices"):
-    # This block executes when the button is clicked
     df_to_process = st.session_state.item_costs.copy()
 
-    # CRITICAL FIX: Ensure all relevant columns are numeric before calculation
-    try:
-        df_to_process['base_price'] = pd.to_numeric(df_to_process['base_price'], errors='coerce').fillna(0)
-        df_to_process['individual_overhead'] = pd.to_numeric(df_to_process['individual_overhead'], errors='coerce')
-    except ValueError as e:
-        st.error(f"Error converting prices to numbers: {e}")
-        st.stop()
-
     if not df_to_process.empty:
-        # Calculate combined tax multiplier
+        # CRITICAL FIX: Ensure columns are numeric before calculations and fill NaNs safely
+        df_to_process['base_price'] = pd.to_numeric(df_to_process['base_price'], errors='coerce').fillna(0)
+        
+        # Fill empty individual overheads with the default global overhead value using .fillna() on the Series
+        effective_overhead_percent = df_to_process['individual_overhead'].fillna(st.session_state.default_overhead)
+        
+        # Calculate the total tax multiplier
         total_tax_multiplier = 1.0 + sum(st.session_state.taxes.values()) / 100.0
 
-        # Apply calculations
-        final_prices = []
-        for index, row in df_to_process.iterrows():
-            item_price = row['base_price']
-            
-            # Determine overhead for the item (use default if individual is NaN/None)
-            # .fillna() handles cases where the user left the individual overhead field empty
-            overhead_rate = row['individual_overhead'].fillna(st.session_state.default_overhead) / 100.0
-            
-            # Final price calculation: base_price * (1 + total_tax_rate + overhead_rate)
-            final_price = item_price * (total_tax_multiplier + overhead_rate)
-            final_prices.append(final_price)
-
-        # Update the dataframe in session state used for display
-        st.session_state.final_results = df_to_process
-        st.session_state.final_results['final_price'] = final_prices
+        # Perform the final calculation using vectorized operations (no loop needed)
+        # Final Price = base_price * (total_tax_multiplier + (effective_overhead_percent / 100.0))
+        df_to_process['final_price'] = df_to_process['base_price'] * (total_tax_multiplier + (effective_overhead_percent / 100.0))
         
-        # Display results below
-        st.subheader("Final Cost Analysis")
-        # Use a new key for the final results dataframe to ensure it updates
-        st.dataframe(st.session_state.final_results, use_container_width=True)
-
+        # Store results for persistent display
+        st.session_state.final_results = df_to_process
+        
     else:
         st.warning("Please add some items to the table before calculating.")
 
